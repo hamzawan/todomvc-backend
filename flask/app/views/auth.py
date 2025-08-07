@@ -4,6 +4,11 @@ from app.helpers.response import get_success_response, get_failure_response, par
 from common.app_config import config
 from common.services import AuthService, PersonService
 
+from app.helpers.send_mail import send_verification_email
+from app.helpers.decorators import login_required_blueprint
+from flask import g
+import uuid
+
 # Create the auth blueprint
 auth_api = Namespace('auth', description="Auth related APIs")
 
@@ -39,6 +44,31 @@ class Signup(Resource):
             parsed_body['last_name']
         )
         return get_success_response(message="User signed up successfully and verification email is sent.")
+
+
+
+# from app.helpers.send_mail import send_verification_email
+# import uuid
+
+# @auth_api.route('/signup')
+# class Signup(Resource):
+#     def post(self):
+#         parsed_body = parse_request_body(request, ['first_name', 'last_name', 'email_address'])
+#         validate_required_fields(parsed_body)
+
+#         auth_service = AuthService(config)
+#         auth_service.signup(
+#             parsed_body['email_address'],
+#             parsed_body['first_name'],
+#             parsed_body['last_name']
+#         )
+
+#         token = str(uuid.uuid4())
+#         verification_link = f"http://localhost:8000/verify-email?token={token}"  # update your domain here
+
+#         send_verification_email(parsed_body['email_address'], verification_link)
+
+#         return get_success_response(message="User signed up successfully and verification email is sent.")
 
 
 @auth_api.route('/login')
@@ -80,6 +110,37 @@ class ForgotPassword(Resource):
         auth_service.trigger_forgot_password_email(parsed_body.get('email'))
 
         return get_success_response(message="Password reset email sent successfully.")
+
+@auth_api.route('/profile', doc=dict(description="Update user profile information"))
+class UpdateProfile(Resource):
+
+    @auth_api.expect({
+        'type': 'object',
+        'properties': {
+            'first_name': {'type': 'string'},
+            'last_name': {'type': 'string'}
+        }
+    })
+    @login_required_blueprint()
+    def put(self, person=None):
+        parsed_body = parse_request_body(request, ['first_name', 'last_name'])
+        
+        user_id = g.person.entity_id
+        
+        person_service = PersonService(config)
+        updated_person = person_service.update_person(
+            user_id,
+            first_name=parsed_body.get('first_name'),
+            last_name=parsed_body.get('last_name')
+        )
+        
+        if not updated_person:
+            return get_failure_response(message="Failed to update profile")
+        
+        return get_success_response(
+            message="Profile updated successfully",
+            person=updated_person.as_dict()
+        )
 
 
 @auth_api.route(

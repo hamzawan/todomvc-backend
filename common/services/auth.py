@@ -65,7 +65,10 @@ class AuthService:
 
         self.organization_service.save_organization(organization)
         self.person_organization_role_service.save_person_organization_role(person_organization_role)
+        
+        logger.info(f"👤 User signup completed for {email.email}. Now sending welcome email...")
         self.send_welcome_email(login_method, person, email.email)
+        logger.info(f"✅ Signup process completed for {email.email}")
 
     def generate_reset_password_token(self, login_method: LoginMethod, email: str):
         person_id, email_id = login_method.person_id, login_method.email_id
@@ -88,18 +91,35 @@ class AuthService:
         return password_reset_url
 
     def send_welcome_email(self, login_method: LoginMethod, person: Person, email: str):
+        logger.info(f"🚀 STARTING WELCOME EMAIL PROCESS for {email}")
+        
         if confirmation_link := self.prepare_password_reset_url(login_method, email):
+            logger.info(f"✅ Password reset link generated: {confirmation_link}")
+            
+            recipient_name = f"{person.first_name} {person.last_name}".strip()
+            logger.info(f"📧 Preparing welcome email for: {recipient_name} ({email})")
+            
             message = {
                 "event": "WELCOME_EMAIL",
                 "data": {
                     "confirmation_link": confirmation_link,
-                    "recipient_name": f"{person.first_name} {person.last_name}".strip(),
+                    "recipient_name": recipient_name,
                 },
                 "to_emails": [email],
             }
-            logger.info("confirmation_link")
-            logger.info(confirmation_link)
-            self.message_sender.send_message(self.EMAIL_TRANSMITTER_QUEUE_NAME, message)
+            
+            logger.info(f"📨 Email message prepared: {message}")
+            logger.info(f"🔄 Sending message to queue: {self.EMAIL_TRANSMITTER_QUEUE_NAME}")
+            
+            try:
+                self.message_sender.send_message(self.EMAIL_TRANSMITTER_QUEUE_NAME, message)
+                logger.info(f"✅ Welcome email message SUCCESSFULLY queued for {email}")
+                logger.info(f"🎯 Check email transmitter logs to confirm delivery")
+            except Exception as e:
+                logger.error(f"❌ FAILED to queue welcome email for {email}: {str(e)}")
+                raise
+        else:
+            logger.error(f"❌ FAILED to generate password reset link for {email}")
 
     def login_user_by_email_password(self, email: str, password: str):
         email_obj = self.email_service.get_email_by_email_address(email)
@@ -140,14 +160,18 @@ class AuthService:
         if not person:
             raise APIException("Person does not exist.")
 
-        login_method = self.login_method_service.get_login_method_by_email_id(email.entity_id)
+        login_method = self.login_method_service.get_login_method_by_email_id(email_obj.entity_id)
         if not login_method:
             raise APIException("Login method does not exist.")
 
         self.send_password_reset_email(email=email_obj.email, login_method=login_method)
 
     def send_password_reset_email(self, email: str, login_method: LoginMethod):
+        logger.info(f"🔄 STARTING PASSWORD RESET EMAIL PROCESS for {email}")
+        
         if password_reset_url := self.prepare_password_reset_url(login_method, email):
+            logger.info(f"✅ Password reset URL generated: {password_reset_url}")
+            
             message = {
                 "event": "RESET_PASSWORD",
                 "data": {
@@ -155,7 +179,19 @@ class AuthService:
                 },
                 "to_emails": [email],
             }
-            self.message_sender.send_message(self.EMAIL_TRANSMITTER_QUEUE_NAME, message)
+            
+            logger.info(f"📨 Password reset message prepared: {message}")
+            logger.info(f"🔄 Sending password reset message to queue: {self.EMAIL_TRANSMITTER_QUEUE_NAME}")
+            
+            try:
+                self.message_sender.send_message(self.EMAIL_TRANSMITTER_QUEUE_NAME, message)
+                logger.info(f"✅ Password reset email message SUCCESSFULLY queued for {email}")
+                logger.info(f"🎯 Check email transmitter logs to confirm delivery")
+            except Exception as e:
+                logger.error(f"❌ FAILED to queue password reset email for {email}: {str(e)}")
+                raise
+        else:
+            logger.error(f"❌ FAILED to generate password reset URL for {email}")
 
     def reset_user_password(self, token: str, uidb64: str, password: str):
         # Create new login method temporarily to validate and generate hashed password in its `password` field.`

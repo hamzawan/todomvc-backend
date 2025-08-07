@@ -1,5 +1,5 @@
 from functools import wraps
-from flask import request
+from flask import request, jsonify
 from flask import g, abort
 
 from app.helpers.response import get_failure_response
@@ -48,6 +48,50 @@ def login_required():
                 extra_args['email'] = email
 
             return func(self, *args, **kwargs, **extra_args)
+
+        return wrapper
+
+    return decorator
+
+
+def login_required_blueprint():
+    """Login required decorator for Blueprint functions (no self parameter)"""
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            if 'Authorization' not in request.headers:
+                return jsonify({'success': False, 'message': 'Authorization header not present'}), 401
+
+            data = request.headers['Authorization']
+            token = str.replace(str(data), 'Bearer ', '')
+            try:
+                parsed_token = parse_access_token(token)
+
+                if not parsed_token:
+                    return jsonify({'success': False, 'message': 'Access token is invalid'}), 401
+
+                person = create_person_from_token(parsed_token)
+                email = create_email_from_token(parsed_token)
+
+                g.person = person
+                g.email = email
+                g.current_user_id = person.entity_id  # for auditing
+
+            except Exception as e:
+                logger.exception(e)
+                return jsonify({'success': False, 'message': 'Internal server error'}), 500
+
+            # handle arguments based on the function parameters
+            func_params = signature(func).parameters
+            extra_args = {}
+
+            if 'person' in func_params:
+                extra_args['person'] = person
+
+            if 'email' in func_params:
+                extra_args['email'] = email
+
+            return func(*args, **kwargs, **extra_args)
 
         return wrapper
 
